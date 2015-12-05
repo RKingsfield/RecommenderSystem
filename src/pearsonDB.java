@@ -5,7 +5,11 @@ import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.Statement;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
+import java.util.Iterator;
+import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
@@ -127,28 +131,7 @@ public class pearsonDB {
 		}
 		
 	}	
-	/*
-	//this contains all the rated items from all users
-	private void populatePredMap(){
-		predMap = new HashMap<Integer,Map<Integer,Integer>>();
-		try{
-			Statement select = c.createStatement();
-			ResultSet rs = select.executeQuery("SELECT * FROM trainingset");
-			while(rs.next()){
-				int user = rs.getInt(1);
-				int item = rs.getInt(2);
-				int rating = rs.getInt(3);	
-				
-				predMap.putIfAbsent(user, new HashMap<Integer,Integer>());
-				predMap.get(user).put(item, rating);
-			}
-			System.out.println("Pred Map Complete");
-			select.close();
-		}catch (Exception e) {
-			error(e);
-		}
-	}
-	*/
+
 	private void fillSimilarities(){
 		try{
 			Statement select = c.createStatement();
@@ -171,24 +154,6 @@ public class pearsonDB {
 		}catch (Exception e){
 			error(e);
 		}
-	}
-	/*
-	private void isNeeded(){
-		isNeeded = new HashMap<Integer,ArrayList<Integer>>();
-		for(int cUser: ratingsNeededMatrix.keySet()){
-			for(int unratedItem: ratingsNeededMatrix.get(cUser).keySet()){
-				
-				if(predMap.containsKey(cUser)){
-					for(int knownItem: predMap.get(cUser).keySet()){
-						isNeeded.putIfAbsent(knownItem, new ArrayList<Integer>());
-						isNeeded.get(knownItem).add(unratedItem);
-					}
-				}
-				
-			}
-		}
-		System.out.println("isNeeded Done!");
-		
 	}
 /*
 	public void predictRest(){
@@ -259,61 +224,62 @@ public class pearsonDB {
 		
 		int count = 0;
 		try{
-
+			//Calculate Average
 			PreparedStatement insert = c.prepareStatement("INSERT INTO Predictions VALUES (?,?,?)");
 			for(int cUser: ratingsNeededMatrix.keySet()){
 				insert.setInt(1, cUser);
 				for(int unratedItem: ratingsNeededMatrix.get(cUser)){
 					
-					int numberOfComparisons = 10;
-					float average = 0;
-					
-					
-					//Get all users who have also rated this item and
-					//Select top X users with the highest similarity to this user
+					float rating = 0;
+										
+					//Get all users who have also rated this item and have a similarity rating
 					Set<Integer> otherUsers = itemMatrix.get(unratedItem).keySet();
-					for(int cOtherUser: similarityMap.get(cUser).keySet()){
-						if (otherUsers.contains(cOtherUser))
-					}
-						
+					Set<Integer> commonUsers = similarityMap.get(cUser).keySet();
+					commonUsers.retainAll(otherUsers);
 					
-					
-					//Find a weighted average from the results
-				
-					//Prediction!
-					
-					
-					
-					
-					
-					
-					
-					
-					/*
+					//Get similarity of each common user
+					HashMap<Integer, Float> similarity = new HashMap<Integer, Float>();
 					float total = 0;
-					float freq = 0;
-					int knownItemRating = 0;
-					insert.setInt(2, unratedItem);
+					for(int user: commonUsers){
+						float sim = similarityMap.get(cUser).get(user);
+						similarity.put(user, sim);
+						total += Math.abs(sim);
+					}
 					
-					if(predMap.containsKey(cUser)){
-						for(int knownItem: predMap.get(cUser).keySet()){
-							knownItemRating = predMap.get(cUser).get(knownItem).intValue();
-							
-							if(differenceMap.containsKey(knownItem) && differenceMap.get(knownItem).containsKey(unratedItem)){
-								float diff = differenceMap.get(knownItem).get(unratedItem).floatValue();
-								total = total + diff + knownItemRating;
-								freq++;
-								
-							}
-							
+					//Get weighted similarity of each user 
+					HashMap<Integer, Float> weightedSimilarity = new HashMap<Integer, Float>();
+					for(int user: commonUsers){
+						//Get percentage value
+						float sim = Math.abs(similarity.get(user));
+						float weight = sim/total;
+						//calculate weighted similarity
+						weightedSimilarity.put(user, weight * sim);
+					}
+										
+					//Used weighted similarity to calculate a rating
+					for (int user: weightedSimilarity.keySet()){
+												
+						//get users rating of item
+						int currentRating = itemMatrix.get(user).get(unratedItem);
+						
+						//If negatively correlated, need to pick the opposite value
+						if (similarity.get(user) < 0){
+							 currentRating = 5 - currentRating;
 						}
-					}*/
+						
+						//Calculate rating by weight
+						rating += currentRating * weightedSimilarity.get(user);
+						
+					}
 					
+					
+					
+					//Save!
 					count++;
-					if(otherUsers == 0 || ( average  > 5 || average < 1)){
+					if(commonUsers.size() == 0 || ( rating  > 5 || rating < 1)){
 						insert.setFloat(3, 0);
 					}else{
-						insert.setFloat(3, average);
+						insert.setFloat(3, rating);
 					}
 					
 					insert.executeUpdate();
@@ -412,7 +378,7 @@ public class pearsonDB {
 		float avg = (total/one.size());
 		return avg;
 	}
-
+	
 	public void error(Exception e) {
 		System.err.println(e.getClass().getName() + ": " + e.getMessage());
 		System.exit(0);
